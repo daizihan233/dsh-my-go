@@ -1,7 +1,7 @@
 <!-- deepseek-harness-meta
 {
   "name": "MyGO 编排器",
-  "version": "0.2.3-tisitan.5",
+  "version": "0.3.0",
   "tags": ["preset", "模式预设"],
   "description": "把每一步路由到最合适模型的智能体编排器"
 }
@@ -10,9 +10,6 @@
 # MyGO!!!!! 编排调度 | DSH
 
 > **My** tasks, where to **GO**?????
-
-> 🔱 **Tisitan fork**：本仓库是 [daizihan233/dsh-my-go](https://github.com/daizihan233/dsh-my-go)
-> 的维护性 fork，包含面板/拓扑闸/失败路径等一系列 Critical 修复，详见 [CHANGELOG.md](CHANGELOG.md)。
 
 dsh-my-go 是构建在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) 之上的**智能体编排系统**。
 
@@ -159,6 +156,15 @@ bun run build:client    # 构建 client bundle
 bunx tsc --noEmit       # 类型检查
 bun run test            # 冒烟测试
 ```
+
+## 致谢
+
+感谢以下开发者对 dsh-my-go 生态的独立维护与贡献：
+
+- [Tisitan/dsh-my-go](https://github.com/Tisitan/dsh-mygo)：[@Tisitan](https://github.com/Tisitan) 的维护性 fork。
+  - 本项目 cherry-pick 了此下游的部分提交，尽管由于分支作者没有设置公开 Email 并禁用了 Issue 故未能取得联系，特此致谢！感谢您对开源项目的贡献。
+
+开源的意义在于接力，感谢每一位在暗处推动轮子前进的人。
 
 ## 维护状态
 
