@@ -18,6 +18,7 @@ dsh-my-go 是构建在 [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 - **步骤级调度**：Prometheus 把需求拆成步骤序列，Sisyphus 逐步骤选择最省 token 的工种——**按任务难度分配（不按需求难度）**：指令明确、步骤具体的执行活优先派 Hermes，需要设计/推理的才升级 Hephaestus，仅疑难/极端复杂才到 Oracle；同工种上下文连续则 `continue` 复用。
 - **Sisyphus 质检**：结论不达标驳回重做，被驳回的子智能体保留上下文继续。
 - **WebUI 配置**：每个工种的模型 / 思考档位 / DSV4P0813 补丁开关，均可在 DSH 设置页配置。
+- **错峰路由（peak routing）**：勾选后按北京时间高峰/非高峰时段在两个渠道+模型组合间自动切换——高峰（周一至五 09:00-12:00、14:00-18:00）走「梁文峰」子配置，其余时段走「梁文谷」子配置。
 - **DSH 适配**：权限请求、问题询问由主智能体执行。
 - **节省主会话上下文**：Sisyphus 主会话不加载 Skill 工具（子智能体仍保留），跳过 Skill catalog 注入以压缩主会话上下文。
 - **DSV4P0813 补丁开关**：内置过拟合补丁，让 DeepSeek V4 Pro 0813 发挥最大的实力。
@@ -91,6 +92,22 @@ host 半（lib）注册 settings 命名空间 `dsh-my-go`，client 半提供设�
 | `agents.<type>.model`           | 不指定（继承） | 该工种的模型；缺省时继承父会话模型                                      |
 | `agents.<type>.reasoningEffort` | 不指定         | 期望思考档位（如 high/max）；**只在模型实际支持时应用**，否则走模型默认 |
 | `agents.<type>.dsv4p0813`       | false          | 是否对该工种启用 DSV4P0813 两阶段引导补丁                               |
+| `agents.<type>.peakRouting`     | false          | 是否启用错峰路由（按北京时间高峰/非高峰切换 provider/model）             |
+| `agents.<type>.peakProvider`    | 不指定（继承） | 高峰时段（梁文峰）渠道；缺省继承父会话渠道                              |
+| `agents.<type>.peakModel`       | 不指定（继承） | 高峰时段（梁文峰）模型；缺省继承父会话模型                              |
+| `agents.<type>.offpeakProvider` | 不指定（继承） | 非高峰时段（梁文谷）渠道；缺省继承父会话渠道                            |
+| `agents.<type>.offpeakModel`    | 不指定（继承） | 非高峰时段（梁文谷）模型；缺省继承父会话模型                            |
+
+### 错峰路由（peak routing）
+
+勾选「错峰路由」后，该工种在派发时按**北京时间**（UTC+8，无夏令时）判断当前时段：
+
+- **高峰时段**（周一至周五 09:00-12:00、14:00-18:00，含 09:00/14:00、不含 12:00/18:00）→ 使用「梁文峰」子配置（`peakProvider` / `peakModel`）；
+- **其余时段**（周末、午休 12:00-14:00、夜间与凌晨）→ 使用「梁文谷」子配置（`offpeakProvider` / `offpeakModel`）。
+
+未勾选时行为与旧版完全一致（只用顶层 `provider` / `model`）。未配置的
+peak/offpeak 字段保持「继承父会话（Sisyphus）」语义，与顶层字段相同。
+思考档位与 DSV4P0813 补丁开关不受错峰路由影响，两个时段共用。
 
 ### 工种模型绑定
 

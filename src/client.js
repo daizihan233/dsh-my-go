@@ -252,12 +252,14 @@ export function apply(ctx) {
     const set = (type, field, value) => {
       setDraft((prev) => {
         const next = { ...prev, [type]: { ...prev?.[type], [field]: value } }
-        // When provider changes, clear model if it's not in the new provider's model list
-        if (field === 'provider') {
-          const currentModel = next[type]?.model ?? ''
+        // When provider changes, clear model if it's not in the new provider's model list.
+        // Covers the top-level provider plus the peak/offpeak sub-providers.
+        if (field === 'provider' || field === 'peakProvider' || field === 'offpeakProvider') {
+          const modelField = field === 'provider' ? 'model' : field === 'peakProvider' ? 'peakModel' : 'offpeakModel'
+          const currentModel = next[type]?.[modelField] ?? ''
           const validModels = modelsForProvider(value)
           if (currentModel && !validModels.includes(currentModel)) {
-            next[type] = { ...next[type], model: '' }
+            next[type] = { ...next[type], [modelField]: '' }
           }
         }
         return next
@@ -286,6 +288,8 @@ export function apply(ctx) {
     const selectStyle = { background: 'var(--surface, #1e1e1e)', color: 'var(--text, #e0e0e0)', border: '1px solid var(--separator, #333)', borderRadius: 4, padding: '4px 8px', fontSize: 13, width: '100%', boxSizing: 'border-box' }
     const labelStyle = { fontSize: 12, color: 'var(--text-secondary, #888)', marginBottom: 2 }
     const cardStyle = { border: '1px solid var(--separator, #333)', borderRadius: 8, padding: 12, marginBottom: 12 }
+    // 错峰路由子卡片：嵌套浅色 + 左边框，视觉上明显是内层卡片
+    const subCardStyle = { border: '1px solid var(--separator, #333)', borderLeft: '3px solid var(--text-secondary, #888)', borderRadius: 6, padding: 10, marginBottom: 8, background: 'rgba(128,128,128,0.08)' }
     const rowStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }
 
     const EFFORTS = ['', 'low', 'high', 'max']
@@ -319,30 +323,67 @@ export function apply(ctx) {
       }, '⚠ 无法从 DSH 获取 Provider/Model 列表。请确认：1) 已重启 dsh web；2) LLM 插件已配置并激活。下拉框仍可手动输入自定义值。') : null,
       ...AGENT_TYPES.map((type) => {
         const cfg = draft?.[type] || {}
-        return React.createElement('div', { key: type, style: cardStyle },
-          React.createElement('div', { style: { fontWeight: 600, marginBottom: 8 } }, AGENT_LABELS[type] || type),
-          React.createElement('div', { style: rowStyle },
-            React.createElement('div', null,
-              React.createElement('div', { style: labelStyle }, '渠道（Provider）'),
-              makeSelect(cfg.provider ?? '', ['', ...providers], providerLabel, (v) => set(type, 'provider', v)),
-            ),
-            React.createElement('div', null,
-              React.createElement('div', { style: labelStyle }, '模型（Model）'),
-              makeSelect(cfg.model ?? '', ['', ...modelsForProvider(cfg.provider ?? '')], modelLabel, (v) => set(type, 'model', v)),
-            ),
-          ),
-          React.createElement('div', { style: rowStyle },
-            React.createElement('div', null,
-              React.createElement('div', { style: labelStyle }, '思考档位（Reasoning Effort）'),
-              makeSelect(cfg.reasoningEffort ?? '', EFFORTS, effortLabel, (v) => set(type, 'reasoningEffort', v)),
-            ),
-            React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: 8 } },
-              React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, paddingTop: 18 } },
-                React.createElement('input', { type: 'checkbox', checked: cfg.dsv4p0813 === true, onChange: (e) => set(type, 'dsv4p0813', e.target.checked) }),
-                'DSV4P0813 补丁',
+        const peakOn = cfg.peakRouting === true
+        // 子卡片（错峰路由勾选后出现）：梁文峰（高峰）/ 梁文谷（非高峰）
+        // 各含一套 渠道（Provider）+ 模型（Model）选择器
+        const subCard = (title, providerField, modelField) =>
+          React.createElement('div', { style: subCardStyle },
+            React.createElement('div', { style: { fontWeight: 600, marginBottom: 8, fontSize: 13 } }, title),
+            React.createElement('div', { style: rowStyle },
+              React.createElement('div', null,
+                React.createElement('div', { style: labelStyle }, '渠道（Provider）'),
+                makeSelect(cfg[providerField] ?? '', ['', ...providers], providerLabel, (v) => set(type, providerField, v)),
+              ),
+              React.createElement('div', null,
+                React.createElement('div', { style: labelStyle }, '模型（Model）'),
+                makeSelect(cfg[modelField] ?? '', ['', ...modelsForProvider(cfg[providerField] ?? '')], modelLabel, (v) => set(type, modelField, v)),
               ),
             ),
+          )
+        const peakCard = subCard('梁文峰（北京时间 周一至周五 09:00-12:00、14:00-18:00）', 'peakProvider', 'peakModel')
+        const offpeakCard = subCard('梁文谷（其他时段）', 'offpeakProvider', 'offpeakModel')
+        // 第一行（顶层 Provider/Model）：未勾选错峰路由时展示；
+        // 勾选后被两个子卡片取代（隐藏）
+        const mainRows = peakOn
+          ? null
+          : React.createElement('div', { style: rowStyle },
+              React.createElement('div', null,
+                React.createElement('div', { style: labelStyle }, '渠道（Provider）'),
+                makeSelect(cfg.provider ?? '', ['', ...providers], providerLabel, (v) => set(type, 'provider', v)),
+              ),
+              React.createElement('div', null,
+                React.createElement('div', { style: labelStyle }, '模型（Model）'),
+                makeSelect(cfg.model ?? '', ['', ...modelsForProvider(cfg.provider ?? '')], modelLabel, (v) => set(type, 'model', v)),
+              ),
+            )
+        // 第二行（思考档位 + DSV4P0813 补丁）：两个时段共用，恒展示
+        const effortRow = React.createElement('div', { style: rowStyle },
+          React.createElement('div', null,
+            React.createElement('div', { style: labelStyle }, '思考档位（Reasoning Effort）'),
+            makeSelect(cfg.reasoningEffort ?? '', EFFORTS, effortLabel, (v) => set(type, 'reasoningEffort', v)),
           ),
+          React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: 8 } },
+            React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, paddingTop: 18 } },
+              React.createElement('input', { type: 'checkbox', checked: cfg.dsv4p0813 === true, onChange: (e) => set(type, 'dsv4p0813', e.target.checked) }),
+              'DSV4P0813 补丁',
+            ),
+          ),
+        )
+        // 错峰路由总开关行
+        const peakRow = React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 } },
+          React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 } },
+            React.createElement('input', { type: 'checkbox', checked: cfg.peakRouting === true, onChange: (e) => set(type, 'peakRouting', e.target.checked) }),
+            '错峰路由',
+          ),
+          React.createElement('span', { style: { fontSize: 11, color: 'var(--text-secondary, #888)' } }, '高峰（周一至五 09-12 / 14-18）走「梁文峰」，其余时段走「梁文谷」'),
+        )
+        return React.createElement('div', { key: type, style: cardStyle },
+          React.createElement('div', { style: { fontWeight: 600, marginBottom: 8 } }, AGENT_LABELS[type] || type),
+          peakRow,
+          mainRows,
+          effortRow,
+          peakOn ? peakCard : null,
+          peakOn ? offpeakCard : null,
         )
       }),
       React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 } },

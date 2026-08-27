@@ -248,6 +248,20 @@ function describeAgent(type) {
   }
 }
 
+/**
+ * 错峰路由时段判断：北京时间（UTC+8，无夏令时）周一至周五
+ * 09:00-12:00、14:00-18:00 视为高峰时段（路由到「梁文峰」子配置），
+ * 其余时段（周末、午休、夜间）视为非高峰时段（路由到「梁文谷」子配置）。
+ * 边界：09:00 含、12:00 不含；14:00 含、18:00 不含。
+ */
+function isBeijingPeak(now = new Date()) {
+  const t = new Date(now.getTime() + 8 * 3600 * 1000)
+  const day = t.getUTCDay()      // 0=周日
+  const hour = t.getUTCHours()
+  if (day === 0 || day === 6) return false
+  return (hour >= 9 && hour < 12) || (hour >= 14 && hour < 18)
+}
+
 // XML 实体转义：need_help 上报体与 forward 转发信封共用同一套，防止
 // 求助单 content 内的伪闭合标签逃逸出包裹结构（tisitan.11）。
 function escapeXml(text) {
@@ -569,6 +583,11 @@ export async function apply(ctx, config = {}) {
               model: row.model || merged[key]?.model,
               reasoningEffort: row.reasoningEffort || merged[key]?.reasoningEffort,
               dsv4p0813: row.dsv4p0813 ?? merged[key]?.dsv4p0813 ?? false,
+              peakRouting: row.peakRouting ?? merged[key]?.peakRouting ?? false,
+              peakProvider: row.peakProvider || merged[key]?.peakProvider,
+              peakModel: row.peakModel || merged[key]?.peakModel,
+              offpeakProvider: row.offpeakProvider || merged[key]?.offpeakProvider,
+              offpeakModel: row.offpeakModel || merged[key]?.offpeakModel,
             }
           }
         }
@@ -587,6 +606,11 @@ export async function apply(ctx, config = {}) {
                 model: row.model || merged[key]?.model,
                 reasoningEffort: row.reasoningEffort || merged[key]?.reasoningEffort,
                 dsv4p0813: row.dsv4p0813 ?? merged[key]?.dsv4p0813 ?? false,
+                peakRouting: row.peakRouting ?? merged[key]?.peakRouting ?? false,
+                peakProvider: row.peakProvider || merged[key]?.peakProvider,
+                peakModel: row.peakModel || merged[key]?.peakModel,
+                offpeakProvider: row.offpeakProvider || merged[key]?.offpeakProvider,
+                offpeakModel: row.offpeakModel || merged[key]?.offpeakModel,
               }
             }
           }
@@ -972,6 +996,16 @@ export async function apply(ctx, config = {}) {
   async function dispatchWork(agentType, prompt, parent, signal, queuedWork, orchHint) {
     if (!AGENT_TYPES.includes(agentType)) throw new Error(`unknown agent type: ${String(agentType)}`)
     const binding = bindings[agentType] ?? {}
+    // 错峰路由：peakRouting 开启时按北京时间高峰/非高峰时段在
+    // 「梁文峰」（peak）与「梁文谷」（offpeak）两套 provider/model 间切换；
+    // 未配置的字段保持 undefined，回落为继承父会话（Sisyphus）的模型。
+    let provider = binding.provider
+    let model = binding.model
+    if (binding.peakRouting) {
+      const peak = isBeijingPeak()
+      provider = peak ? binding.peakProvider : binding.offpeakProvider
+      model = peak ? binding.peakModel : binding.offpeakModel
+    }
     // 队列路径的父会话兜底已上移到 advanceQueue（按 work.parentId 从
     // agents 注册表重解析）；此处 parent 缺失即抛错，由调用方回补重试。
     if (!parent) throw new Error('go_work requires a live parent agent to delegate from')
@@ -988,20 +1022,20 @@ export async function apply(ctx, config = {}) {
     }
     const placeholder = orch.beginSpawning(agentType, prompt)
     try {
-      // Resolve provider: use binding's explicit provider, or inherit from parent agent options
+      // Resolve provider: use binding's explicit provider (after peak routing), or inherit from parent agent options
       const parentProvider = parent?.options?.provider
-      const resolvedProvider = binding.provider ?? parentProvider
+      const resolvedProvider = provider ?? parentProvider
       // Build agentOptions: always pass provider so sub-agent doesn't fall back to DSH default
       const agentOpts = {}
       if (resolvedProvider) agentOpts.provider = resolvedProvider
       // Only set model if it exists on the resolved provider
-      if (binding.model !== undefined && resolvedProvider) {
-        if (await modelExists(resolvedProvider, binding.model)) {
-          agentOpts.model = binding.model
+      if (model !== undefined && resolvedProvider) {
+        if (await modelExists(resolvedProvider, model)) {
+          agentOpts.model = model
         }
-      } else if (binding.model !== undefined && !resolvedProvider) {
+      } else if (model !== undefined && !resolvedProvider) {
         // No provider available — set model anyway, agent/request handler will validate
-        agentOpts.model = binding.model
+        agentOpts.model = model
       }
       // Inject sub-agent persona from prompts/ files via <system-reminder>.
       // The loaded prompt contains full role description, responsibilities,
